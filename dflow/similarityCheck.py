@@ -1,7 +1,11 @@
-from typing import Any, List, Union, Dict
+from typing import Any, List, Union
 from sentence_transformers import SentenceTransformer, util
 import numpy as np
 import pandas as pd
+from textx import get_children_of_type
+from itertools import product
+
+from dflow.language import get_metamodel
 
 def similarityCheck(models: Union[List[Any], pd.DataFrame], sections: List[str] = None, model: SentenceTransformer = None, column_name: str = None):
     """
@@ -20,7 +24,7 @@ def similarityCheck(models: Union[List[Any], pd.DataFrame], sections: List[str] 
     """
     similarity_results = {}
 
-
+    #left untouched
     if isinstance(models, pd.DataFrame) and column_name:
         # If models is a DataFrame, compare sentences in the specified column, excluding self-comparisons
         sentences = models[column_name].astype(str).tolist()
@@ -53,35 +57,45 @@ def similarityCheck(models: Union[List[Any], pd.DataFrame], sections: List[str] 
    
     elif isinstance(models, list) and sections:
         # If models is a list of strings, compare specified sections across models
+        mm = get_metamodel()
+        parsed_models = [mm.model_from_str(model) for model in models]
         for section in sections:
-            sentences = [m[m.find(section):m.rfind('end')] for m in models]
+            sentences1 = [phrase.phrases[0] for phrase in get_children_of_type(section, parsed_models[0])[0].phrases]
+            sentences2 = [phrase.phrases[0] for phrase in get_children_of_type(section, parsed_models[1])[0].phrases]
+            print(sentences1)
+            print(sentences2)
 
-
-            # Compute embeddings for each section
-            embeddings = [model.encode(s, convert_to_tensor=True) for s in sentences]
-
-
-            # Cosine similarities between each pair of model sections
-            similarities = util.pytorch_cos_sim(embeddings[0], embeddings[1])
-
-
-            # Calculate mean, median, and max scores
-            mean_score = similarities.mean().item()
-            median_score = similarities.median().item()
-            max_score = similarities.max().item()
-
-
-            similarity_results[section] = {
-                'mean': mean_score,
-                'median': median_score,
-                'max': max_score,
-                'similar': mean_score > 0.5 or median_score > 0.5 or max_score > 0.9
-            }
+            similarity_results[section] = checkSimilaritiesBetweenLists(sentences1, sentences2, model)
    
     else:
         raise ValueError("Invalid input: provide either a list of models with sections or a DataFrame with a column name.")
    
     return similarity_results
+
+def checkSimilaritiesBetweenLists(list1: List, list2: List, model: SentenceTransformer):
+    all_similarities = []
+    #Combination of all items of list1 with all items of list2
+    for item1, item2 in product(list1, list2):
+        # Compute embeddings for each section
+        embedding1 = model.encode(list1, convert_to_tensor=True)
+        embedding2 = model.encode(list2, convert_to_tensor=True)
+
+        # Cosine similarities between each pair of model sections
+        similarities = util.pytorch_cos_sim(embedding1, embedding2)
+
+
+        # Calculate mean, median, and max scores
+        mean_score = similarities.mean().item()
+        median_score = similarities.median().item()
+        max_score = similarities.max().item()
+
+        all_similarities.append({
+            'mean': mean_score,
+            'median': median_score,
+            'max': max_score,
+            'similar': mean_score > 0.5 or median_score > 0.5 or max_score > 0.9
+        })
+    return all_similarities
 
 def main():
     # Example usage:

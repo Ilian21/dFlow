@@ -1,3 +1,4 @@
+from typing import IO, List
 import click
 import os
 from rich import print, pretty
@@ -55,16 +56,16 @@ def merge(ctx, models):
         return
 
     sections = [
-        'triggers',
-        'dialogues'
+        'Intent',
+        'responses'
     ]
     model = SentenceTransformer('all-MiniLM-L6-v2')
     similarities = similarityCheck(_models, sections, model)
     #Intents not similar (case 2 & 4)
-    if not similarities['triggers']['similar']:
+    if not similarities['Intent']['similar']:
          print("Add both")
     #Intents similar and responses similar (case 1)
-    elif similarities['dialogues']['similar']:
+    elif similarities['responses']['similar']:
         merged_model_str = merge_models(_models)
         out_path = f"merged.dflow"
         with open(out_path, 'w') as f:
