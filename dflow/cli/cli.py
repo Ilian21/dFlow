@@ -3,8 +3,11 @@ import os
 from rich import print, pretty
 import json
 
+from sentence_transformers import SentenceTransformer
+
 from dflow.language import build_model, report_model_info, merge_models
 from dflow.generator import codegen as rasa_generator
+from dflow.similarityCheck import similarityCheck
 
 pretty.install()
 
@@ -50,11 +53,26 @@ def merge(ctx, models):
     if len(_models) < 2:
         print("[X] Number of models must be greater than two (2)")
         return
-    merged_model_str = merge_models(_models)
-    out_path = f"merged.dflow"
-    with open(out_path, 'w') as f:
-                f.write(merged_model_str)
-    print(f"[*] Model merging finished - Output: {out_path}")
+
+    sections = [
+        'triggers',
+        'dialogues'
+    ]
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    similarities = similarityCheck(_models, sections, model)
+    #Intents not similar (case 2 & 4)
+    if not similarities['triggers']['similar']:
+         print("Add both")
+    #Intents similar and responses similar (case 1)
+    elif similarities['dialogues']['similar']:
+        merged_model_str = merge_models(_models)
+        out_path = f"merged.dflow"
+        with open(out_path, 'w') as f:
+                    f.write(merged_model_str)
+        print(f"[*] Model merging finished - Output: {out_path}")
+    #Intents similar and responses not similar (case 3)
+    else:
+         print('Warning: Intents similar and responses not similar')
 
 def main():
     cli(prog_name="dflow")
