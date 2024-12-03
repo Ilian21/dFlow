@@ -4,6 +4,7 @@ import pathlib
 from os.path import join
 from typing import Any, List
 import uuid
+import re
 
 import textx.scoping.providers as scoping_providers
 from rich import pretty, print
@@ -374,10 +375,10 @@ def merge_models(models: List[Any], output: bool = False):
         'dialogues',
         'eservices'
     ]
-    merged_strings = {k: '' for k in sections}
+    section_entries = {k: [] for k in sections}
 
     for model in models:
-        # Use list os sections to find keywords in file
+        # Use list of sections to find keywords in file
         indexes = []
         for section in sections:
             i = model.find(section)
@@ -393,18 +394,37 @@ def merge_models(models: List[Any], output: bool = False):
                 part = model[ind:]
                 model = model[:ind]
                 end_i = part.rfind('end')
-                merged_strings[sections[i]] += part[len(sections[i]):end_i]
+                if sections[i] == 'triggers' and section_entries['triggers']:
+                    #Determine if intents are similar and can be merged
+                    intent_indices = [intent.start() for intent in re.finditer("Intent", part)]    #find all the intents inside the triggers
+                    triggers = part
+                    intents_to_add = []
+                    for intent_index in reversed(intent_indices):
+                        intent_part = triggers[intent_index:end_i]
+                        triggers = triggers[:intent_index]
+                        intent_end = intent_part.rfind('end')
+                        phrases = extract_phrases(intent_part)
+                        similarFound = False
+                        for intent_i in section_entries['triggers']:
+                            phrases_i = extract_phrases(intent_i)
+                            if mockSimilarityCheck(phrases, phrases_i):
+                                similarFound = True
+                        if not similarFound:
+                            intents_to_add.append(part[intent_index:intent_end] + 'end')
+                    section_entries['triggers'].append(''.join(intents_to_add))
+                else:
+                    section_entries[sections[i]].append(part[len(sections[i]):end_i])
 
     # Add section name the begining and 'end' in the end of each section
-    for section in merged_strings:
-        merged_strings[section] = section + merged_strings[section] + '\nend'
+    for section in section_entries:
+        section_entries[section] = section + ''.join(section_entries[section]) + '\nend'
     merged_str = '\n\n'.join([
-        merged_strings['gslots'],
-        merged_strings['entities'],
-        merged_strings['synonyms'],
-        merged_strings['triggers'],
-        merged_strings['eservices'],
-        merged_strings['dialogues'],
+        section_entries['gslots'],
+        section_entries['entities'],
+        section_entries['synonyms'],
+        section_entries['triggers'],
+        section_entries['eservices'],
+        section_entries['dialogues'],
     ])
 
     if output:
@@ -414,3 +434,19 @@ def merge_models(models: List[Any], output: bool = False):
             f.write(merged_str)
         return gen_path
     return merged_str
+
+def extract_phrases(intent: str) -> List[str]:
+    pattern = r'"([^"]+)"'  # Matches the first quoted string in each line
+
+    # Extract all lines and find the first match per line
+    lines = intent.splitlines()
+    quoted_sentences = []
+    for line in lines:
+        match = re.search(pattern, line)
+        if match:
+            quoted_sentences.append(match.group(1))  # Extract the content inside the first quotes
+    return quoted_sentences
+
+#TODO: remove
+def mockSimilarityCheck(phrases1: List[str], phrases2: List[str]):
+    return phrases1[0] == phrases2[0]
