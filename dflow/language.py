@@ -436,16 +436,22 @@ def merge_models(models: List[Any], output: bool = False):
     return merged_str
 
 def extract_phrases(intent: str) -> List[str]:
-    pattern = r'"([^"]+)"'  # Matches the first quoted string in each line
+    pattern = r'"([^"]+)"|PE:[A-Z]+\[\s*\'([^\']+)\''  # Matches quoted strings and PE examples
 
-    # Extract all lines and find the first match per line
+    # Process each line to extract information
     lines = intent.splitlines()
-    quoted_sentences = []
+    combined_phrases = []
     for line in lines:
-        match = re.search(pattern, line)
-        if match:
-            quoted_sentences.append(match.group(1))  # Extract the content inside the first quotes
-    return quoted_sentences
+        matches = re.findall(pattern, line)
+        if matches:
+            combined_sentence = []  # To collect parts of the sentence
+            for match in matches:
+                if match[0]:  # If it's a quoted string
+                    combined_sentence.append(match[0])  # Add the quoted string
+                elif match[1]:  # If it's a PE example
+                    combined_sentence.append(match[1])  # Add the PE example
+            combined_phrases.append(" ".join(combined_sentence))  # Combine parts into a sentence
+    return combined_phrases
 
 #TODO: remove
 def mockSimilarityCheck(phrases1: List[str], phrases2: List[str]):
