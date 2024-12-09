@@ -2,7 +2,7 @@ import json
 import os
 import pathlib
 from os.path import join
-from typing import Any, List
+from typing import Any, Dict, List
 import uuid
 import re
 
@@ -20,6 +20,7 @@ from textx.scoping import GlobalModelRepository, ModelRepository
 import dflow.definitions as CONSTANTS
 
 from dflow.generator import validate_path_params, process_eservice_params_as_dict
+from dflow.similarity import are_intents_similar
 
 pretty.install()
 
@@ -394,30 +395,15 @@ def merge_models(models: List[Any], output: bool = False):
                 part = model[ind:]
                 model = model[:ind]
                 end_i = part.rfind('end')
-                if sections[i] == 'triggers' and section_entries['triggers']:
+                if sections[i] == 'triggers':
                     #Determine if intents are similar and can be merged
-                    intent_indices = [intent.start() for intent in re.finditer("Intent", part)]    #find all the intents inside the triggers
-                    triggers = part
-                    intents_to_add = []
-                    for intent_index in reversed(intent_indices):
-                        intent_part = triggers[intent_index:end_i]
-                        triggers = triggers[:intent_index]
-                        intent_end = intent_part.rfind('end')
-                        phrases = extract_phrases(intent_part)
-                        similarFound = False
-                        for intent_i in section_entries['triggers']:
-                            phrases_i = extract_phrases(intent_i)
-                            if mockSimilarityCheck(phrases, phrases_i):
-                                similarFound = True
-                        if not similarFound:
-                            intents_to_add.append(part[intent_index:intent_end] + 'end')
-                    section_entries['triggers'].append(''.join(intents_to_add))
+                    handle_trigger_merge(part[:end_i], section_entries)
                 else:
                     section_entries[sections[i]].append(part[len(sections[i]):end_i])
 
     # Add section name the begining and 'end' in the end of each section
     for section in section_entries:
-        section_entries[section] = section + ''.join(section_entries[section]) + '\nend'
+        section_entries[section] = section + ''.join(section_entries[section]) + 'end'
     merged_str = '\n\n'.join([
         section_entries['gslots'],
         section_entries['entities'],
@@ -453,6 +439,32 @@ def extract_phrases(intent: str) -> List[str]:
             combined_phrases.append(" ".join(combined_sentence))  # Combine parts into a sentence
     return combined_phrases
 
-#TODO: remove
-def mockSimilarityCheck(phrases1: List[str], phrases2: List[str]):
-    return phrases1[0] == phrases2[0]
+def handle_trigger_merge(triggers_str: str, section_entries: Dict[str, List[str]]):
+    # Find all the intents and events and store the position and the type
+    trigger_matches = [(match.start(), match.group()) for match in re.finditer("Intent|Event", triggers_str)]
+    triggers = triggers_str
+    # Iterate through the triggers from last to first
+    intents = []
+    events = []
+    for trigger_index, trigger_type in reversed(trigger_matches):
+        
+        trigger_part = triggers[trigger_index:]
+        triggers = triggers[:trigger_index]
+        
+        if trigger_type == 'Event':
+            # Add the event to the merge output
+            events.append('\n  ' + trigger_part)
+        elif trigger_type == 'Intent': 
+            # Determine whether there is a similar intent in the section_entries or not   
+            phrases = extract_phrases(trigger_part)
+            similarFound = False
+            for intent_i in section_entries['triggers']:
+                phrases_i = extract_phrases(intent_i)
+                if are_intents_similar(phrases, phrases_i):
+                    similarFound = True
+                    break
+            if not similarFound:
+                # If the intent is unique, add it to the section_entries
+                intents.append('\n  ' + trigger_part)
+    section_entries['triggers'].extend(intents)
+    section_entries['triggers'].extend(events)
