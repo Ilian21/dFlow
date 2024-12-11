@@ -378,6 +378,9 @@ def merge_models(models: List[Any], output: bool = False):
     ]
     section_entries = {k: [] for k in sections}
 
+    intents = []
+    events = []
+    
     for model in models:
         # Use list of sections to find keywords in file
         indexes = []
@@ -386,7 +389,7 @@ def merge_models(models: List[Any], output: bool = False):
             indexes.append(i)
         # Sort sections based on appearance in file
         indexes, sections = zip(*sorted(zip(indexes, sections)))
-
+        
         # Extract each section in reverse order
         for i in reversed(range(len(indexes))):
             ind = indexes[i]
@@ -397,9 +400,11 @@ def merge_models(models: List[Any], output: bool = False):
                 end_i = part.rfind('end')
                 if sections[i] == 'triggers':
                     #Determine if intents are similar and can be merged
-                    handle_trigger_merge(part[:end_i], section_entries)
+                    handle_trigger_merge(part[:end_i], intents, events, True)
                 else:
                     section_entries[sections[i]].append(part[len(sections[i]):end_i])
+        
+    section_entries['triggers'] = intents + events + ['\n']
 
     # Add section name the begining and 'end' in the end of each section
     for section in section_entries:
@@ -422,34 +427,35 @@ def merge_models(models: List[Any], output: bool = False):
     return merged_str
 
 def extract_phrases(intent: str) -> List[str]:
+    return intent.strip().splitlines()[1:-1]
+
+def extract_intent_name(intent: str) -> str:
+    return re.search('Intent ([^\d\W]\w*)', intent).group(1)
+
+def simplify_phrase(phrase: str) -> str:
     pattern = r'"([^"]+)"|PE:[A-Z]+\[\s*\'([^\']+)\''  # Matches quoted strings and PE examples
-
     # Process each line to extract information
-    lines = intent.splitlines()
-    combined_phrases = []
-    for line in lines:
-        matches = re.findall(pattern, line)
-        if matches:
-            combined_sentence = []  # To collect parts of the sentence
-            for match in matches:
-                if match[0]:  # If it's a quoted string
-                    combined_sentence.append(match[0])  # Add the quoted string
-                elif match[1]:  # If it's a PE example
-                    combined_sentence.append(match[1])  # Add the PE example
-            combined_phrases.append(" ".join(combined_sentence))  # Combine parts into a sentence
-    return combined_phrases
+    matches = re.findall(pattern, phrase)
+    combined_sentence = ''  # To collect parts of the sentence
+    if matches:
+        for match in matches:
+            if match[0]:  # If it's a quoted string
+                combined_sentence += match[0]  # Add the quoted string
+            elif match[1]:  # If it's a PE example
+                combined_sentence += match[1]  # Add the PE example
+    return combined_sentence
 
-def handle_trigger_merge(triggers_str: str, section_entries: Dict[str, List[str]]):
+def handle_trigger_merge(triggers_str: str, intents: List[str], events: List[str], debug: bool = False):
     # Find all the intents and events and store the position and the type
     trigger_matches = [(match.start(), match.group()) for match in re.finditer("Intent|Event", triggers_str)]
     triggers = triggers_str
     # Iterate through the triggers from last to first
-    intents = []
-    events = []
     for trigger_index, trigger_type in reversed(trigger_matches):
         
         trigger_part = triggers[trigger_index:]
         triggers = triggers[:trigger_index]
+        trigger_end = trigger_part.rfind('end') + 3
+        trigger_part = trigger_part[:trigger_end]
         
         if trigger_type == 'Event':
             # Add the event to the merge output
@@ -458,13 +464,27 @@ def handle_trigger_merge(triggers_str: str, section_entries: Dict[str, List[str]
             # Determine whether there is a similar intent in the section_entries or not   
             phrases = extract_phrases(trigger_part)
             similarFound = False
-            for intent_i in section_entries['triggers']:
+            for intent_i in intents:
                 phrases_i = extract_phrases(intent_i)
-                if are_intents_similar(phrases, phrases_i):
+                simplified_phrases = [simplify_phrase(phrase) for phrase in phrases]
+                simplified_phrases_i = [simplify_phrase(phrase) for phrase in phrases_i]
+                if debug:
+                    print(f"[Intents: {len(intents)}]: Comparing {extract_intent_name(trigger_part)} with {extract_intent_name(intent_i)}")
+                if are_intents_similar(simplified_phrases, simplified_phrases_i):
+                    if debug:
+                        print("They are similar.")
                     similarFound = True
+                    intents.remove(intent_i)
+                    intents.append(
+                        "\n  Intent " 
+                        + extract_intent_name(trigger_part) 
+                        + "\n" 
+                        + '\n'.join(set(phrases + phrases_i)) 
+                        + "\n  end"
+                    )
                     break
             if not similarFound:
+                if debug:
+                    print("No similar intent found.")
                 # If the intent is unique, add it to the section_entries
                 intents.append('\n  ' + trigger_part)
-    section_entries['triggers'].extend(intents)
-    section_entries['triggers'].extend(events)
