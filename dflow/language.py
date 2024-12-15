@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 import uuid
 import re
 
+import jinja2
 import textx.scoping.providers as scoping_providers
 from rich import pretty, print
 from textx import (
@@ -376,55 +377,25 @@ def merge_models(models: List[Any], output: bool = False):
         'dialogues',
         'eservices'
     ]
-    section_entries = {k: [] for k in sections}
 
-    intents = []
-    events = []
+    # Parse models
+    mm = get_metamodel()
+    models = [mm.model_from_str(file) for file in  models]
+
+    merge_result = {section: [] for section in sections}
+
+    for section in sections:
+        merge_result[section] = getattr(models[0], section)
+
+    #Important
+    TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+
+    jinja_env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(TEMPLATE_DIR))
+    template = jinja_env.get_template('model.dflow.jinja')
+
     
-    for model in models:
-        # Use list of sections to find keywords in file
-        indexes = []
-        for section in sections:
-            i = model.find(section)
-            indexes.append(i)
-        # Sort sections based on appearance in file
-        indexes, sections = zip(*sorted(zip(indexes, sections)))
-        
-        # Extract each section in reverse order
-        for i in reversed(range(len(indexes))):
-            ind = indexes[i]
-            # ind == -1 if keyword doesn't exist in model
-            if ind >= 0:
-                part = model[ind:]
-                model = model[:ind]
-                end_i = part.rfind('end')
-                if sections[i] == 'triggers':
-                    #Determine if intents are similar and can be merged
-                    handle_trigger_merge(part[:end_i], intents, events, True)
-                else:
-                    section_entries[sections[i]].append(part[len(sections[i]):end_i])
-        
-    section_entries['triggers'] = intents + events + ['\n']
-
-    # Add section name the begining and 'end' in the end of each section
-    for section in section_entries:
-        section_entries[section] = section + ''.join(section_entries[section]) + 'end'
-    merged_str = '\n\n'.join([
-        section_entries['gslots'],
-        section_entries['entities'],
-        section_entries['synonyms'],
-        section_entries['triggers'],
-        section_entries['eservices'],
-        section_entries['dialogues'],
-    ])
-
-    if output:
-        gen_path = os.path.join(CONSTANTS.TMP_DIR,
-                                f'model-merged-{uuid.uuid4().hex[0:8]}.dflow')
-        with open(gen_path, 'w') as f:
-            f.write(merged_str)
-        return gen_path
-    return merged_str
+    return template.render(merge_result)
 
 def extract_phrases(intent: str) -> List[str]:
     return intent.strip().splitlines()[1:-1]
