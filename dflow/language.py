@@ -409,6 +409,7 @@ def merge_models(models: List[Any], output: bool = False):
     # Add section name the begining and 'end' in the end of each section
     for section in section_entries:
         section_entries[section] = section + ''.join(section_entries[section]) + 'end'
+        
     merged_str = '\n\n'.join([
         section_entries['gslots'],
         section_entries['entities'],
@@ -449,7 +450,9 @@ def simplify_phrase(phrase: str) -> str:
 
 def handle_trigger_merge(triggers_str: str, intents: List[str], events: List[str], debug: bool = False):
     """
-    Handle_trigger_merge 
+    Handle_trigger_merge takes the triggers List and fill the lists of the intents and the events.
+    Checks for similarities with previous intents and if found merges them. 
+    The check happens between models, but also inside the same model.
     """
     # Find all the intents and events and store the position and the type
     trigger_matches = [(match.start(), match.group()) for match in re.finditer("Intent|Event", triggers_str)]
