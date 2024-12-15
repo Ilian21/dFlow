@@ -433,9 +433,11 @@ def extract_intent_name(intent: str) -> str:
     return re.search('Intent ([^\d\W]\w*)', intent).group(1)
 
 def simplify_phrase(phrase: str) -> str:
-    pattern = r'"([^"]+)"|PE:[A-Z]+\[\s*\'([^\']+)\''  # Matches quoted strings and PE examples
-    # Process each line to extract information
-    matches = re.findall(pattern, phrase)
+    """
+    Simplify_phrase simplifies the phrase, using the first example of the PEs in order to do the similarity check
+    """
+    pattern = r'"([^"]+)"|PE:[A-Z]+\[\s*\'([^\']+)\''  # Matches quoted strings or the first of the PE examples
+    matches = re.findall(pattern, phrase) 
     combined_sentence = ''  # To collect parts of the sentence
     if matches:
         for match in matches:
@@ -446,6 +448,9 @@ def simplify_phrase(phrase: str) -> str:
     return combined_sentence
 
 def handle_trigger_merge(triggers_str: str, intents: List[str], events: List[str], debug: bool = False):
+    """
+    Handle_trigger_merge 
+    """
     # Find all the intents and events and store the position and the type
     trigger_matches = [(match.start(), match.group()) for match in re.finditer("Intent|Event", triggers_str)]
     triggers = triggers_str
