@@ -1,12 +1,11 @@
-import json
 import os
 import pathlib
 from os.path import join
-from typing import Any, Dict, List
-import uuid
+from typing import Any, List
 import re
 
 import jinja2
+from pydantic import BaseModel
 import textx.scoping.providers as scoping_providers
 from rich import pretty, print
 from textx import (
@@ -14,13 +13,13 @@ from textx import (
     get_children_of_type,
     language,
     metamodel_from_file,
-    get_location,
 )
-from textx.scoping import GlobalModelRepository, ModelRepository
+from textx.scoping import GlobalModelRepository
 
 import dflow.definitions as CONSTANTS
 
 from dflow.generator import validate_path_params, process_eservice_params_as_dict
+from dflow.m2m.openapi_to_dflow import DflowResponse, Dialogue, EService, Slot, Trigger
 from dflow.similarity import are_intents_similar
 
 pretty.install()
@@ -367,6 +366,10 @@ def dflow_language():
     mm = get_metamodel()
     return mm
 
+class Event(BaseModel):
+    type = 'Event'
+    name: str
+    uri: str
 
 def merge_models(models: List[Any], output: bool = False):
     sections = [
@@ -384,17 +387,61 @@ def merge_models(models: List[Any], output: bool = False):
 
     merge_result = {section: [] for section in sections}
 
-    for section in sections:
-        merge_result[section] = getattr(models[0], section)
+    for model in models:
+        for trigger in model.triggers:
+            if trigger.__class__.__name__ == 'Intent':
+                simplified_phrases = []
+                for phraseComplex in trigger.phrases:
+                    simplified_phrases.append(' '.join([phrase for phrase in phraseComplex.phrases if isinstance(phrase, str)]))
+                # Similarity check
+                # if are_intents_similar(...)
+                merge_result['triggers'].append(Trigger(name=trigger.name, phrases=simplified_phrases))
+            elif trigger.__class__.__name__ == 'Event':
+                merge_result['triggers'].append(Event(name=trigger.name, uri=trigger.uri))
+        for eservice in model.eservices:
+            merge_result['eservices'].append(eservice)
+        for dialogue in model.dialogues:
+            responses = []
+            for response in dialogue.responses:
+                response_type = response.__class__.__name__
+                if response_type == 'Form':
+                    slots = []
+                    for slot in response.params:
+                        slots.append(Slot(
+                            type=slot.type,
+                            name=slot.name,
+                            # prompt=slot
+                            #...
+                        ))
+                    responses.append(DflowResponse(
+                        type='Form',
+                        name=response.name,
+                        slots=slots
+                        # ...
+                    ))
+                elif response_type == 'ActionGroup':
+                    pass
+                    # responses.append(DflowResponse(
+                        
+                    # ))
+                
+            merge_result['dialogues'].append(Dialogue(
+                name=dialogue.name,
+                verb=dialogue.name,
+                triggers=[trigger.name for trigger in dialogue.onTrigger],
+                responses=responses
+            ))
+        
+                
 
     #Important
     TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 
-    jinja_env = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(TEMPLATE_DIR))
-    template = jinja_env.get_template('model.dflow.jinja')
-
+    jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATE_DIR))
     
+    template = jinja_env.get_template('model.dflow.jinja')
+    
+
     return template.render(merge_result)
 
 def extract_phrases(intent: str) -> List[str]:

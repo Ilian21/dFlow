@@ -29,7 +29,7 @@ class Parameter(BaseModel):
     location: str
     required: bool
     ptype: str
-    schema: Union[str,None] = None
+    schema_: Union[str,None] = None
     media_type: Union[str,None] = None
 
 class Response(BaseModel):
