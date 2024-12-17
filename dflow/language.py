@@ -1,7 +1,7 @@
 import os
 import pathlib
 from os.path import join
-from typing import Any, List
+from typing import Any, Dict, List, Optional
 import re
 
 import jinja2
@@ -371,7 +371,7 @@ class Event(BaseModel):
     name: str
     uri: str
 
-def merge_models(models: List[Any], output: bool = False):
+def merge_models(raw_models: List[Any], output: bool = False):
     sections = [
         'entities',
         'synonyms',
@@ -383,54 +383,58 @@ def merge_models(models: List[Any], output: bool = False):
 
     # Parse models
     mm = get_metamodel()
-    models = [mm.model_from_str(file) for file in  models]
+    parsed_models = [mm.model_from_str(file) for file in  raw_models]
 
     merge_result = {section: [] for section in sections}
 
-    for model in models:
-        for trigger in model.triggers:
+    for parsed_model, raw_model in zip(parsed_models, raw_models):
+        for trigger in parsed_model.triggers:
             if trigger.__class__.__name__ == 'Intent':
-                simplified_phrases = []
-                for phraseComplex in trigger.phrases:
-                    simplified_phrases.append(' '.join([phrase for phrase in phraseComplex.phrases if isinstance(phrase, str)]))
+                phrases = extract_phrases(raw_model, trigger.name)
+                
                 # Similarity check
-                # if are_intents_similar(...)
-                merge_result['triggers'].append(Trigger(name=trigger.name, phrases=simplified_phrases))
+                similar_intent = find_similar_intent(phrases, merge_result)
+                if similar_intent:
+                    similar_intent.phrases = list(set(similar_intent.phrases + phrases))                                        
+                else:
+                    merge_result['triggers'].append(Trigger(name=trigger.name, phrases=phrases))
+                    
             elif trigger.__class__.__name__ == 'Event':
                 merge_result['triggers'].append(Event(name=trigger.name, uri=trigger.uri))
-        for eservice in model.eservices:
+        for eservice in parsed_model.eservices:
             merge_result['eservices'].append(eservice)
-        for dialogue in model.dialogues:
-            responses = []
-            for response in dialogue.responses:
-                response_type = response.__class__.__name__
-                if response_type == 'Form':
-                    slots = []
-                    for slot in response.params:
-                        slots.append(Slot(
-                            type=slot.type,
-                            name=slot.name,
-                            # prompt=slot
-                            #...
-                        ))
-                    responses.append(DflowResponse(
-                        type='Form',
-                        name=response.name,
-                        slots=slots
-                        # ...
-                    ))
-                elif response_type == 'ActionGroup':
-                    pass
-                    # responses.append(DflowResponse(
+            
+        # for dialogue in model.dialogues:
+        #     responses = []
+        #     for response in dialogue.responses:
+        #         response_type = response.__class__.__name__
+        #         if response_type == 'Form':
+        #             slots = []
+        #             for slot in response.params:
+        #                 slots.append(Slot(
+        #                     type=slot.type,
+        #                     name=slot.name,
+        #                     # prompt=slot
+        #                     #...
+        #                 ))
+        #             responses.append(DflowResponse(
+        #                 type='Form',
+        #                 name=response.name,
+        #                 slots=slots
+        #                 # ...
+        #             ))
+        #         elif response_type == 'ActionGroup':
+        #             pass
+        #             # responses.append(DflowResponse(
                         
-                    # ))
+        #             # ))
                 
-            merge_result['dialogues'].append(Dialogue(
-                name=dialogue.name,
-                verb=dialogue.name,
-                triggers=[trigger.name for trigger in dialogue.onTrigger],
-                responses=responses
-            ))
+            # merge_result['dialogues'].append(Dialogue(
+            #     name=dialogue.name,
+            #     verb=dialogue.name,
+            #     triggers=[trigger.name for trigger in dialogue.onTrigger],
+            #     responses=responses
+            # ))
         
                 
 
@@ -444,65 +448,14 @@ def merge_models(models: List[Any], output: bool = False):
 
     return template.render(merge_result)
 
-def extract_phrases(intent: str) -> List[str]:
-    return intent.strip().splitlines()[1:-1]
+def extract_phrases(raw_model: str, intent_name: str) -> List[str]:
+    phrases = re.search(f'Intent {intent_name}([\s\S]*?)end', raw_model).group(1)
+    phrasesList = phrases.split(',\n')
+    return list(map(str.strip, phrasesList))
 
-def extract_intent_name(intent: str) -> str:
-    return re.search('Intent ([^\d\W]\w*)', intent).group(1)
-
-def simplify_phrase(phrase: str) -> str:
-    pattern = r'"([^"]+)"|PE:[A-Z]+\[\s*\'([^\']+)\''  # Matches quoted strings and PE examples
-    # Process each line to extract information
-    matches = re.findall(pattern, phrase)
-    combined_sentence = ''  # To collect parts of the sentence
-    if matches:
-        for match in matches:
-            if match[0]:  # If it's a quoted string
-                combined_sentence += match[0]  # Add the quoted string
-            elif match[1]:  # If it's a PE example
-                combined_sentence += match[1]  # Add the PE example
-    return combined_sentence
-
-def handle_trigger_merge(triggers_str: str, intents: List[str], events: List[str], debug: bool = False):
-    # Find all the intents and events and store the position and the type
-    trigger_matches = [(match.start(), match.group()) for match in re.finditer("Intent|Event", triggers_str)]
-    triggers = triggers_str
-    # Iterate through the triggers from last to first
-    for trigger_index, trigger_type in reversed(trigger_matches):
-        
-        trigger_part = triggers[trigger_index:]
-        triggers = triggers[:trigger_index]
-        trigger_end = trigger_part.rfind('end') + 3
-        trigger_part = trigger_part[:trigger_end]
-        
-        if trigger_type == 'Event':
-            # Add the event to the merge output
-            events.append('\n  ' + trigger_part)
-        elif trigger_type == 'Intent': 
-            # Determine whether there is a similar intent in the section_entries or not   
-            phrases = extract_phrases(trigger_part)
-            similarFound = False
-            for intent_i in intents:
-                phrases_i = extract_phrases(intent_i)
-                simplified_phrases = [simplify_phrase(phrase) for phrase in phrases]
-                simplified_phrases_i = [simplify_phrase(phrase) for phrase in phrases_i]
-                if debug:
-                    print(f"[Intents: {len(intents)}]: Comparing {extract_intent_name(trigger_part)} with {extract_intent_name(intent_i)}")
-                if are_intents_similar(simplified_phrases, simplified_phrases_i):
-                    if debug:
-                        print("They are similar.")
-                    similarFound = True
-                    intents.remove(intent_i)
-                    intents.append(
-                        "\n  Intent " 
-                        + extract_intent_name(trigger_part) 
-                        + "\n" 
-                        + '\n'.join(set(phrases + phrases_i)) 
-                        + "\n  end"
-                    )
-                    break
-            if not similarFound:
-                if debug:
-                    print("No similar intent found.")
-                # If the intent is unique, add it to the section_entries
-                intents.append('\n  ' + trigger_part)
+def find_similar_intent(phrases: List[str], merge_result: Dict[str, List]) -> Optional[Trigger]:
+    for trigger in merge_result['triggers']:
+        if trigger.type=='Intent' and are_intents_similar(phrases, trigger.phrases):
+            return trigger
+    return None    
+    
