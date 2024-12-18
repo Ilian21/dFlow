@@ -19,7 +19,7 @@ from textx.scoping import GlobalModelRepository
 import dflow.definitions as CONSTANTS
 
 from dflow.generator import validate_path_params, process_eservice_params_as_dict
-from dflow.m2m.openapi_to_dflow import DflowResponse, Dialogue, EService, Slot, Trigger
+from dflow.m2m.openapi_to_dflow import EService, Slot, Trigger
 from dflow.similarity import are_intents_similar
 
 pretty.install()
@@ -371,6 +371,16 @@ class Event(BaseModel):
     name: str
     uri: str
 
+class Response(BaseModel):
+    type: str
+    name: str
+    contents: list[str]
+    
+class Dialogue(BaseModel):
+    name: str
+    triggers: list[str]
+    responses: list[Response]
+
 def merge_models(raw_models: List[Any], output: bool = False):
     sections = [
         'entities',
@@ -392,49 +402,58 @@ def merge_models(raw_models: List[Any], output: bool = False):
             if trigger.__class__.__name__ == 'Intent':
                 phrases = extract_phrases(raw_model, trigger.name)
                 
-                # Similarity check
+                # Intent similarity check
                 similar_intent = find_similar_intent(phrases, merge_result)
                 if similar_intent:
-                    similar_intent.phrases = list(set(similar_intent.phrases + phrases))                                        
+                    similar_intent.phrases = list(set(similar_intent.phrases + phrases))    
+                    # Response similarity check                                    
                 else:
                     merge_result['triggers'].append(Trigger(name=trigger.name, phrases=phrases))
+                    dialogue = find_trigger_dialogue(parsed_model, trigger.name)
+                    merge_result['dialogues'].append(create_dialogue_template_object(dialogue, raw_model))
+                        
                     
             elif trigger.__class__.__name__ == 'Event':
                 merge_result['triggers'].append(Event(name=trigger.name, uri=trigger.uri))
+                dialogue = find_trigger_dialogue(parsed_model, trigger.name)
+                merge_result['dialogues'].append(create_dialogue_template_object(dialogue, raw_model))
+                
         for eservice in parsed_model.eservices:
             merge_result['eservices'].append(eservice)
-            
-        # for dialogue in model.dialogues:
-        #     responses = []
-        #     for response in dialogue.responses:
-        #         response_type = response.__class__.__name__
-        #         if response_type == 'Form':
-        #             slots = []
-        #             for slot in response.params:
-        #                 slots.append(Slot(
-        #                     type=slot.type,
-        #                     name=slot.name,
-        #                     # prompt=slot
-        #                     #...
-        #                 ))
-        #             responses.append(DflowResponse(
-        #                 type='Form',
-        #                 name=response.name,
-        #                 slots=slots
-        #                 # ...
-        #             ))
-        #         elif response_type == 'ActionGroup':
-        #             pass
-        #             # responses.append(DflowResponse(
+        
+        """    
+        for dialogue in model.dialogues:
+            responses = []
+            for response in dialogue.responses:
+                response_type = response.__class__.__name__
+                if response_type == 'Form':
+                    slots = []
+                    for slot in response.params:
+                        slots.append(Slot(
+                            type=slot.type,
+                            name=slot.name,
+                            # prompt=slot
+                            #...
+                        ))
+                    responses.append(DflowResponse(
+                        type='Form',
+                        name=response.name,
+                        slots=slots
+                        # ...
+                    ))
+                elif response_type == 'ActionGroup':
+                    pass
+                    # responses.append(DflowResponse(
                         
-        #             # ))
+                    # ))
                 
-            # merge_result['dialogues'].append(Dialogue(
-            #     name=dialogue.name,
-            #     verb=dialogue.name,
-            #     triggers=[trigger.name for trigger in dialogue.onTrigger],
-            #     responses=responses
-            # ))
+            merge_result['dialogues'].append(Dialogue(
+                name=dialogue.name,
+                verb=dialogue.name,
+                triggers=[trigger.name for trigger in dialogue.onTrigger],
+                responses=responses
+            ))
+            """
         
                 
 
@@ -443,7 +462,7 @@ def merge_models(raw_models: List[Any], output: bool = False):
 
     jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATE_DIR))
     
-    template = jinja_env.get_template('model.dflow.jinja')
+    template = jinja_env.get_template('merged.dflow.jinja')
     
 
     return template.render(merge_result)
@@ -457,5 +476,76 @@ def find_similar_intent(phrases: List[str], merge_result: Dict[str, List]) -> Op
     for trigger in merge_result['triggers']:
         if trigger.type=='Intent' and are_intents_similar(phrases, trigger.phrases):
             return trigger
-    return None    
+    return None
+
+def find_trigger_dialogue(parsed_model, trigger_name: str) -> Optional[Any]:
+    """
+    Find dialogue that corresponds to intent name
+    """
+    for dialogue in parsed_model.dialogues:
+        if trigger_name in map(lambda trigger: trigger.name, dialogue.onTrigger):
+            return dialogue
+    raise Exception(f'No dialogue corresponds to intent: { trigger_name }')
+
+def create_dialogue_template_object(dialogue, raw_model: str) -> Dialogue:
+    responses = []
+    for response in dialogue.responses:
+        responses.append(Response(
+            type=response.__class__.__name__,
+            name=response.name,
+            contents=extract_response_contents(response, raw_model)
+        ))
+    return Dialogue(
+        name=dialogue.name,
+        triggers=list(map(lambda trigger: trigger.name, dialogue.onTrigger)),
+        responses=responses
+    )
+
+def extract_response_contents(response, raw_model: str) -> list[str]:
+    contents = re.search(f'{response.__class__.__name__} {response.name}\n([\s\S]+?)end', raw_model).group(1).strip().splitlines()
+    return list(map(str.strip, contents))
     
+
+# def convert_dialogue(dialogue, raw_model) -> Dialogue:
+#     responses = []
+#     for response in dialogue.responses:
+#         response_type = response.__class__.__name__
+#         slots = []
+#         service_call = []
+#         text = []
+        
+#         if response_type == 'Form':
+#             for param in response.params:
+#                 prompt = None
+#                 service_call = None
+#                 response_filter = None
+#                 if param.__class__.__name__ == 'HRIParamSource':
+#                     prompt = re.search(f'{param.name}: {param.type} = HRI\(([\s\S]+?)\)').group(1)
+#                 elif param.__class__.__name__ == 'HRIParamSource':
+#                     match = re.search(f'{param.name}: {param.type} = ([\s\S]+?\))(\[(.*)\])?')
+#                     service_call = match.group(1)
+#                     if len(match.groups()) == 3:
+#                         response_filter = match.group(3)
+#                 slots.append(Slot(
+#                     type=param.type,
+#                     name=param.name,
+#                     prompt=prompt,
+#                     service_call=service_call,
+#                     response_filter=response_filter
+#                 ))
+#         elif response_type == 'ActionGroup':
+#             pass
+        
+#         responses.append(DflowResponse(
+#             type=response_type,
+#             name=response.name,
+#             slots=slots,
+#             service_call=service_call,
+#             text=text
+#         ))
+        
+#     return Dialogue(
+#         name=dialogue.name,
+#         triggers=dialogue.onTrigger,
+#         responses=responses
+#     )

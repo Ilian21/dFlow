@@ -1,0 +1,48 @@
+eservices
+    {%- for eservice in eservices %}
+    EServiceHTTP {{ eservice.name }}
+        verb: {{ eservice.verb }}
+        host: '{{ eservice.host }}'
+        {%- if eservice.port %}
+        port: {{ eservice.port }}
+        {%- endif %}
+        {%- if eservice.path %}
+        path: '{{ eservice.path }}'
+        {%- endif %}
+        {%- if eservice.mime %}
+        mime: {% for mime in eservice.mime %}'{{ mime }}'{%- if not loop.last %}, {% endif %}{% endfor %}
+        {%- endif %}
+    end
+    {%- endfor %}
+end
+
+triggers
+{%- for trigger in triggers %}
+  {{ trigger.type }} {{ trigger.name }}
+  {%- if trigger.type == 'Intent' %}
+    {%- for phrase in trigger.phrases %}
+    {{ phrase }}{{ "," if not loop.last else "" }}
+    {%- endfor %}
+  {%- elif trigger.type == 'Event' %}
+    '{{ trigger.uri }}'
+  {%- endif %}
+  end
+{%- endfor %}
+end
+
+dialogues
+{%- for dialogue in dialogues %}
+  Dialogue {{ dialogue.name }}
+    on: {% for trigger in dialogue.triggers %}{{ trigger }}{%- if not loop.last %}, {% endif %}{% endfor %}
+    responses:
+      {%- for response in dialogue.responses %}
+        {{response.type}} {{response.name}}
+        {%- for content in response.contents %}
+          {{content}}
+        {%- endfor %}
+        end
+      {%- endfor %}
+  end
+{%- endfor %}
+end
+
