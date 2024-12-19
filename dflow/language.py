@@ -374,7 +374,24 @@ class Event(BaseModel):
 class Response(BaseModel):
     type: str
     name: str
-    contents: list[str]
+
+class Param(BaseModel):
+    type: str
+    name: str
+    source: str
+    
+class Form(Response):
+    type = 'Form'
+    params: list[Param]
+
+class Action(BaseModel):
+    type: str
+    content: str
+    roles: Optional[str]
+    
+class ActionGroup(Response):
+    type = 'ActionGroup'
+    actions: list[Action]
     
 class Dialogue(BaseModel):
     name: str
@@ -398,72 +415,39 @@ def merge_models(raw_models: List[Any], output: bool = False):
     merge_result = {section: [] for section in sections}
 
     for parsed_model, raw_model in zip(parsed_models, raw_models):
+        dialoguePool: list[Dialogue] = []
+        for dialogue in parsed_model.dialogues:
+            dialoguePool.append(create_dialogue_template_object(dialogue, raw_model))
+        
         for trigger in parsed_model.triggers:
+            trigger_dialogue = find_trigger_dialogue(dialoguePool, trigger.name)
             if trigger.__class__.__name__ == 'Intent':
                 phrases = extract_phrases(raw_model, trigger.name)
                 
                 # Intent similarity check
                 similar_intent = find_similar_intent(phrases, merge_result)
                 if similar_intent:
-                    similar_intent.phrases = list(set(similar_intent.phrases + phrases))    
-                    # Response similarity check                                    
+                    # Response similarity check
+                    similar_intent_dialogue = find_trigger_dialogue(merge_result['dialogues'], similar_intent.name)
+                    if are_dialogues_similar(trigger_dialogue, similar_intent_dialogue):
+                        similar_intent.phrases = list(set(similar_intent.phrases + phrases))
+                    else:
+                        raise Exception('Similar intents but different dialogues.')                                   
                 else:
                     merge_result['triggers'].append(Trigger(name=trigger.name, phrases=phrases))
-                    dialogue = find_trigger_dialogue(parsed_model, trigger.name)
-                    merge_result['dialogues'].append(create_dialogue_template_object(dialogue, raw_model))
+                    merge_result['dialogues'].append(trigger_dialogue)
                         
                     
             elif trigger.__class__.__name__ == 'Event':
                 merge_result['triggers'].append(Event(name=trigger.name, uri=trigger.uri))
-                dialogue = find_trigger_dialogue(parsed_model, trigger.name)
-                merge_result['dialogues'].append(create_dialogue_template_object(dialogue, raw_model))
+                merge_result['dialogues'].append(trigger_dialogue)
                 
         for eservice in parsed_model.eservices:
-            merge_result['eservices'].append(eservice)
-        
-        """    
-        for dialogue in model.dialogues:
-            responses = []
-            for response in dialogue.responses:
-                response_type = response.__class__.__name__
-                if response_type == 'Form':
-                    slots = []
-                    for slot in response.params:
-                        slots.append(Slot(
-                            type=slot.type,
-                            name=slot.name,
-                            # prompt=slot
-                            #...
-                        ))
-                    responses.append(DflowResponse(
-                        type='Form',
-                        name=response.name,
-                        slots=slots
-                        # ...
-                    ))
-                elif response_type == 'ActionGroup':
-                    pass
-                    # responses.append(DflowResponse(
-                        
-                    # ))
-                
-            merge_result['dialogues'].append(Dialogue(
-                name=dialogue.name,
-                verb=dialogue.name,
-                triggers=[trigger.name for trigger in dialogue.onTrigger],
-                responses=responses
-            ))
-            """
-        
-                
+            merge_result['eservices'].append(eservice)       
 
-    #Important
     TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
-
     jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATE_DIR))
-    
     template = jinja_env.get_template('merged.dflow.jinja')
-    
 
     return template.render(merge_result)
 
@@ -478,33 +462,109 @@ def find_similar_intent(phrases: List[str], merge_result: Dict[str, List]) -> Op
             return trigger
     return None
 
-def find_trigger_dialogue(parsed_model, trigger_name: str) -> Optional[Any]:
+def find_trigger_dialogue(dialogues: list[Dialogue], trigger_name: str) -> Dialogue:
     """
     Find dialogue that corresponds to intent name
     """
-    for dialogue in parsed_model.dialogues:
-        if trigger_name in map(lambda trigger: trigger.name, dialogue.onTrigger):
+    for dialogue in dialogues:
+        if trigger_name in dialogue.triggers:
             return dialogue
     raise Exception(f'No dialogue corresponds to intent: { trigger_name }')
 
 def create_dialogue_template_object(dialogue, raw_model: str) -> Dialogue:
+    action_types = [
+        'SpeakAction',
+        'FireEventAction',
+        'EServiceCallHTTP', 
+        'SetFormSlot',    
+        'SetGlobalSlot'
+    ]
+    actions_taken = {action_type: 0 for action_type in action_types}
     responses = []
     for response in dialogue.responses:
-        responses.append(Response(
-            type=response.__class__.__name__,
-            name=response.name,
-            contents=extract_response_contents(response, raw_model)
-        ))
+        response_type = response.__class__.__name__   #Get if it is Form or Action
+        if response_type == 'Form':
+            params = []
+            for i, param in enumerate(response.params):
+                next_param = response.params[i + 1] if i + 1 < len(response.params) else None
+                params.append(Param(
+                    type=param.type,
+                    name=param.name,
+                    source=extract_param_source(raw_model, param, next_param)
+                ))
+            responses.append(Form(
+                name=response.name,
+                params=params
+            ))
+        elif response_type == 'ActionGroup':
+            actions = []
+            for action in response.actions:
+                action_type = action.__class__.__name__
+                content, roles = extract_action_content_and_roles(raw_model, action_type, actions_taken[action_type])
+                print(action_type, actions_taken[action_type])
+                actions_taken[action_type] += 1
+                actions.append(Action(
+                    type=action_type,
+                    content=content,
+                    roles=roles
+                ))
+            responses.append(ActionGroup(
+                name=response.name,
+                actions=actions
+            ))
+            
+        
     return Dialogue(
         name=dialogue.name,
         triggers=list(map(lambda trigger: trigger.name, dialogue.onTrigger)),
         responses=responses
     )
 
-def extract_response_contents(response, raw_model: str) -> list[str]:
-    contents = re.search(f'{response.__class__.__name__} {response.name}\n([\s\S]+?)end', raw_model).group(1).strip().splitlines()
-    return list(map(str.strip, contents))
+def extract_action_content_and_roles(raw_model: str, action_type: str, action_type_index: int) -> tuple[str, Optional[str]]:
+    action_keyword = None
+    if action_type == 'SpeakAction':
+        action_keyword = 'Speak'
+    elif action_type == 'FireEventAction':
+        action_keyword = 'FireEvent'
+    elif action_type == 'SetFormSlot':
+        action_keyword = 'SetFSlot'
+    elif action_type == 'SetGlobalSlot':
+        action_keyword = 'SetGSlot'
+    #TODO: RESTCallAction
     
+    action_match = list(re.finditer(f'{action_keyword}\(([\s\S]+?)\)(\[([\s\S]+?)\])?', raw_model))[action_type_index]
+    content = action_match.group(1)
+    roles = action_match.group(3) if len(action_match.groups()) == 3 else None
+    return content, roles
+
+def extract_param_source(raw_model: str, param, next_param: Optional[Any]) -> str:
+    return re.search(f'{param.name}: {param.type} = ([\s\S]+?)\s*{next_param.name if next_param else "end"}', raw_model).group(1)
+    
+def are_dialogues_similar(dialogue1: Dialogue, dialogue2: Dialogue) -> bool:
+    if len(dialogue1.responses) != len(dialogue2.responses):
+        return False
+    for response1_i, response2_i in zip(dialogue1.responses, dialogue2.responses):
+        if response1_i.type != response2_i.type:
+            return False
+    for response1_i, response2_i in zip(dialogue1.responses, dialogue2.responses):
+        if response1_i.type == 'Form' and len(response1_i.params) != len(response2_i.params): # obviously response2_i is also Form
+            return False
+        if response1_i.type == 'ActionGroup' and len(response1_i.actions) != len(response2_i.actions): # obviously response2_i is also ActionGroup
+            return False
+    for response1_i, response2_i in zip(dialogue1.responses, dialogue2.responses):
+        if response1_i.type == 'Form':
+            for param1_i, action2_i in zip(response1_i.params, response2_i.params):
+                if param1_i.type != action2_i.type:
+                    return False
+                #check the similarity between sources
+        if response1_i.type == 'ActionGroup':
+            for action1_i, action2_i in zip(response1_i.actions, response2_i.actions):
+                if action1_i.type != action2_i.type:
+                    return False
+                #Get inside the content and check if it is HRI etc
+                #check the string inside there for similarity
+    return True
+
 
 # def convert_dialogue(dialogue, raw_model) -> Dialogue:
 #     responses = []
