@@ -5,7 +5,7 @@ from sentence_transformers import  SentenceTransformer, util
 # Specify the model
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
-def are_intents_similar(phrases1: List[str], phrases2: List[str]) -> bool:
+def are_lists_similar(phrases1: List[str], phrases2: List[str]) -> bool:
     """
     Calculate similarity between two sets of phrases using a SentenceTransformer model.
 

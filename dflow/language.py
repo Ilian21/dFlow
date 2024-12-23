@@ -20,7 +20,7 @@ import dflow.definitions as CONSTANTS
 
 from dflow.generator import validate_path_params, process_eservice_params_as_dict
 from dflow.m2m.openapi_to_dflow import EService, Slot, Trigger
-from dflow.similarity import are_intents_similar
+from dflow.similarity import are_lists_similar
 
 pretty.install()
 
@@ -460,7 +460,7 @@ def extract_phrases(raw_model: str, intent_name: str) -> List[str]:
 
 def find_similar_intent(phrases: List[str], triggers: List[Union[Trigger, Event]]) -> Optional[Trigger]:
     for trigger in triggers:
-        if trigger.type=='Intent' and are_intents_similar(phrases, trigger.phrases):
+        if trigger.type=='Intent' and are_lists_similar(phrases, trigger.phrases):
             return trigger
     return None
 
@@ -572,12 +572,29 @@ def are_dialogues_similar(dialogue1: Dialogue, dialogue2: Dialogue) -> bool:
         if response1_i.type == 'Form':
             for param1_i, param2_i in zip(response1_i.params, response2_i.params):
                 if param1_i.type != param2_i.type:
-                    return False
-                #check the similarity between param sources
-                #HRI\(([\S\s]+)\)
+                    return False            
         if response1_i.type == 'ActionGroup':
             for action1_i, action2_i in zip(response1_i.actions, response2_i.actions):
                 if action1_i.type != action2_i.type:
+                    return False      
+    for response1_i, response2_i in zip(dialogue1.responses, dialogue2.responses):
+        if response1_i.type == 'Form':
+            for param1_i, param2_i in zip(response1_i.params, response2_i.params):
+                hri1 = extract_hri(param1_i)
+                hri2 = extract_hri(param2_i)
+                if hri1 and hri2 and not are_lists_similar([hri1], [hri2]):
                     return False
-                #check similarity in action contents
+                      
+                #check the similarity between param sources
+                
+        if response1_i.type == 'ActionGroup':
+            for action1_i, action2_i in zip(response1_i.actions, response2_i.actions):
+                if action1_i.type == 'SpeakAction' and not are_lists_similar(action1_i.content, action2_i.content):  #they have the same type
+                    return False
+            
     return True
+
+def extract_hri(param: Param)-> Optional[str]:
+    match = re.match(r'HRI\(([\S\s]+)\)', param.source)
+    return match.group(1) if match else None
+
