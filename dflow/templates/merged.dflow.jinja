@@ -39,19 +39,11 @@ dialogues
         {{response.type}} {{response.name}}
         {%- if response.type == 'Form' %}
         {%- for param in response.params %}
-            {{param.name}}: {{param.type}} = {{param.source}}
+          {{param.name}}: {{param.type}} = {{param.source}}
         {%- endfor %}
         {%- elif response.type == 'ActionGroup' %}
         {%- for action in response.actions %}
-            {%- if action.type == "SpeakAction" %}
-            Speak({{action.content}}){% if action.roles %}[{{action.roles}}]{% endif %}
-            {%- elif action.type == "FireEventAction" %}
-            FireEvent({{action.content}}){% if action.roles %}[{{action.roles}}]{% endif %}
-            {%- elif action.type == "SetFormSlot" %}
-            SetFSlot({{action.content}}){% if action.roles %}[{{action.roles}}]{% endif %}
-            {%- elif action.type == "SetGlobalSlot" %}
-            SetGSlot({{action.content}}){% if action.roles %}[{{action.roles}}]{% endif %}
-            {%- endif %}
+          {{action.keyword}}({{action.content}}){% if action.response_filters %}[{{action.response_filters}}]{% endif %}{% if action.roles %}[{{action.roles}}]{% endif %}
         {%- endfor %}
         {%- endif %}
         end

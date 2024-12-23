@@ -1,7 +1,7 @@
 import os
 import pathlib
 from os.path import join
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import re
 
 import jinja2
@@ -386,7 +386,9 @@ class Form(Response):
 
 class Action(BaseModel):
     type: str
+    keyword: str
     content: str
+    response_filters: Optional[str]
     roles: Optional[str]
     
 class ActionGroup(Response):
@@ -425,7 +427,7 @@ def merge_models(raw_models: List[Any], output: bool = False):
                 phrases = extract_phrases(raw_model, trigger.name)
                 
                 # Intent similarity check
-                similar_intent = find_similar_intent(phrases, merge_result)
+                similar_intent = find_similar_intent(phrases, merge_result['triggers'])
                 if similar_intent:
                     # Response similarity check
                     similar_intent_dialogue = find_trigger_dialogue(merge_result['dialogues'], similar_intent.name)
@@ -456,8 +458,8 @@ def extract_phrases(raw_model: str, intent_name: str) -> List[str]:
     phrasesList = phrases.split(',\n')
     return list(map(str.strip, phrasesList))
 
-def find_similar_intent(phrases: List[str], merge_result: Dict[str, List]) -> Optional[Trigger]:
-    for trigger in merge_result['triggers']:
+def find_similar_intent(phrases: List[str], triggers: List[Union[Trigger, Event]]) -> Optional[Trigger]:
+    for trigger in triggers:
         if trigger.type=='Intent' and are_intents_similar(phrases, trigger.phrases):
             return trigger
     return None
@@ -475,14 +477,15 @@ def create_dialogue_template_object(dialogue, raw_model: str) -> Dialogue:
     action_types = [
         'SpeakAction',
         'FireEventAction',
-        'EServiceCallHTTP', 
-        'SetFormSlot',    
+        'EServiceCallHTTP',
+        'SetFormSlot',
         'SetGlobalSlot'
     ]
     actions_taken = {action_type: 0 for action_type in action_types}
     responses = []
     for response in dialogue.responses:
         response_type = response.__class__.__name__   #Get if it is Form or Action
+        raw_response = extract_raw_response(raw_model, response.name, response_type)
         if response_type == 'Form':
             params = []
             for i, param in enumerate(response.params):
@@ -490,7 +493,7 @@ def create_dialogue_template_object(dialogue, raw_model: str) -> Dialogue:
                 params.append(Param(
                     type=param.type,
                     name=param.name,
-                    source=extract_param_source(raw_model, param, next_param)
+                    source=extract_param_source(raw_response, param, next_param)
                 ))
             responses.append(Form(
                 name=response.name,
@@ -500,12 +503,13 @@ def create_dialogue_template_object(dialogue, raw_model: str) -> Dialogue:
             actions = []
             for action in response.actions:
                 action_type = action.__class__.__name__
-                content, roles = extract_action_content_and_roles(raw_model, action_type, actions_taken[action_type])
-                print(action_type, actions_taken[action_type])
+                keyword, content, response_filters, roles = extract_action_details(raw_response, action_type, actions_taken[action_type])
                 actions_taken[action_type] += 1
                 actions.append(Action(
                     type=action_type,
+                    keyword=keyword,
                     content=content,
+                    response_filters=response_filters,
                     roles=roles
                 ))
             responses.append(ActionGroup(
@@ -520,7 +524,10 @@ def create_dialogue_template_object(dialogue, raw_model: str) -> Dialogue:
         responses=responses
     )
 
-def extract_action_content_and_roles(raw_model: str, action_type: str, action_type_index: int) -> tuple[str, Optional[str]]:
+def extract_action_details(raw_ActionGroup: str, action_type: str, action_type_index: int) -> tuple[str, str, Optional[str]]:
+    '''
+    Extracts action_keyword, content and roles from Action
+    '''
     action_keyword = None
     if action_type == 'SpeakAction':
         action_keyword = 'Speak'
@@ -530,15 +537,25 @@ def extract_action_content_and_roles(raw_model: str, action_type: str, action_ty
         action_keyword = 'SetFSlot'
     elif action_type == 'SetGlobalSlot':
         action_keyword = 'SetGSlot'
-    #TODO: RESTCallAction
-    
-    action_match = list(re.finditer(f'{action_keyword}\(([\s\S]+?)\)(\[([\s\S]+?)\])?', raw_model))[action_type_index]
-    content = action_match.group(1)
-    roles = action_match.group(3) if len(action_match.groups()) == 3 else None
-    return content, roles
+    elif action_type == 'EServiceCallHTTP':
+        action_keyword = r'\b(?!(?:Speak|FireEvent|SetFSlot|SetGSlot)\b)\w+'
+ 
+    action_match = list(re.finditer(f'({action_keyword})\(([\s\S]+?)\)(?:\[([\s\S]+?)\])?(?:\[([\s\S]+?)\])?', raw_ActionGroup))[action_type_index]
+    action_keyword = action_match.group(1)
+    content = action_match.group(2)
+    response_filters, roles = None, None
+    if len(action_match.groups()) == 3:
+        roles = action_match.group(3) #could be either roles or response_filters
+    elif len(action_match.groups()) == 4:
+        response_filters = action_match.group(3) 
+        roles = action_match.group(4) 
+    return action_keyword, content, response_filters, roles
 
-def extract_param_source(raw_model: str, param, next_param: Optional[Any]) -> str:
-    return re.search(f'{param.name}: {param.type} = ([\s\S]+?)\s*{next_param.name if next_param else "end"}', raw_model).group(1)
+def extract_raw_response(raw_model: str, response_name: str, response_type: str) -> str:
+    return re.search(f'{response_type} {response_name}[\s\S]+?end', raw_model).group(0)
+
+def extract_param_source(raw_response: str, param, next_param: Optional[Any]) -> str:
+    return re.search(f'{param.name}: {param.type} = ([\s\S]+?)\s*{next_param.name if next_param else "end"}', raw_response).group(1)
     
 def are_dialogues_similar(dialogue1: Dialogue, dialogue2: Dialogue) -> bool:
     if len(dialogue1.responses) != len(dialogue2.responses):
@@ -553,59 +570,14 @@ def are_dialogues_similar(dialogue1: Dialogue, dialogue2: Dialogue) -> bool:
             return False
     for response1_i, response2_i in zip(dialogue1.responses, dialogue2.responses):
         if response1_i.type == 'Form':
-            for param1_i, action2_i in zip(response1_i.params, response2_i.params):
-                if param1_i.type != action2_i.type:
+            for param1_i, param2_i in zip(response1_i.params, response2_i.params):
+                if param1_i.type != param2_i.type:
                     return False
-                #check the similarity between sources
+                #check the similarity between param sources
+                #HRI\(([\S\s]+)\)
         if response1_i.type == 'ActionGroup':
             for action1_i, action2_i in zip(response1_i.actions, response2_i.actions):
                 if action1_i.type != action2_i.type:
                     return False
-                #Get inside the content and check if it is HRI etc
-                #check the string inside there for similarity
+                #check similarity in action contents
     return True
-
-
-# def convert_dialogue(dialogue, raw_model) -> Dialogue:
-#     responses = []
-#     for response in dialogue.responses:
-#         response_type = response.__class__.__name__
-#         slots = []
-#         service_call = []
-#         text = []
-        
-#         if response_type == 'Form':
-#             for param in response.params:
-#                 prompt = None
-#                 service_call = None
-#                 response_filter = None
-#                 if param.__class__.__name__ == 'HRIParamSource':
-#                     prompt = re.search(f'{param.name}: {param.type} = HRI\(([\s\S]+?)\)').group(1)
-#                 elif param.__class__.__name__ == 'HRIParamSource':
-#                     match = re.search(f'{param.name}: {param.type} = ([\s\S]+?\))(\[(.*)\])?')
-#                     service_call = match.group(1)
-#                     if len(match.groups()) == 3:
-#                         response_filter = match.group(3)
-#                 slots.append(Slot(
-#                     type=param.type,
-#                     name=param.name,
-#                     prompt=prompt,
-#                     service_call=service_call,
-#                     response_filter=response_filter
-#                 ))
-#         elif response_type == 'ActionGroup':
-#             pass
-        
-#         responses.append(DflowResponse(
-#             type=response_type,
-#             name=response.name,
-#             slots=slots,
-#             service_call=service_call,
-#             text=text
-#         ))
-        
-#     return Dialogue(
-#         name=dialogue.name,
-#         triggers=dialogue.onTrigger,
-#         responses=responses
-#     )
