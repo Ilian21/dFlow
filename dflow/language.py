@@ -446,6 +446,15 @@ def merge_models(raw_models: List[Any], output: bool = False):
                 
         for eservice in parsed_model.eservices:
             merge_result['eservices'].append(eservice)       
+            
+        for entities in parsed_model.entities:
+            merge_result['entities'].append(entities)   
+            
+        for synonyms in parsed_model.synonyms:
+            merge_result['synonyms'].append(synonyms)   
+            
+        for gslots in parsed_model.gslots:
+            merge_result['gslots'].append(gslots)   
 
     TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
     jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATE_DIR))
@@ -582,16 +591,13 @@ def are_dialogues_similar(dialogue1: Dialogue, dialogue2: Dialogue) -> bool:
             for param1_i, param2_i in zip(response1_i.params, response2_i.params):
                 hri1 = extract_hri(param1_i)
                 hri2 = extract_hri(param2_i)
-                if hri1 and hri2 and not are_lists_similar([hri1], [hri2]):
-                    return False
-                      
                 #check the similarity between param sources
-                
+                if hri1 and hri2 and not are_lists_similar([hri1], [hri2]):
+                    return False              
         if response1_i.type == 'ActionGroup':
             for action1_i, action2_i in zip(response1_i.actions, response2_i.actions):
                 if action1_i.type == 'SpeakAction' and not are_lists_similar(action1_i.content, action2_i.content):  #they have the same type
-                    return False
-            
+                    return False     
     return True
 
 def extract_hri(param: Param)-> Optional[str]:

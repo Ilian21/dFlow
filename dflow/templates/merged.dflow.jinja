@@ -1,20 +1,62 @@
-eservices
-    {%- for eservice in eservices %}
-    EServiceHTTP {{ eservice.name }}
-        verb: {{ eservice.verb }}
-        host: '{{ eservice.host }}'
-        {%- if eservice.port %}
-        port: {{ eservice.port }}
-        {%- endif %}
-        {%- if eservice.path %}
-        path: '{{ eservice.path }}'
-        {%- endif %}
-        {%- if eservice.mime %}
-        mime: {% for mime in eservice.mime %}'{{ mime }}'{%- if not loop.last %}, {% endif %}{% endfor %}
-        {%- endif %}
-    end
-    {%- endfor %}
+{%- if entities %}entities
+{%- for entity in entities %}
+  Entity {{ entity.name }}
+  {%- for word in entity.words %}
+    '{{ word }}'{% if not loop.last %}, {% endif %}
+  {%- endfor %}
+  end
+{%- endfor %}
 end
+{%- endif %}
+
+{%- if synonyms %}
+
+synonyms
+{%- for synonym in synonyms %}
+  Synonym {{ synonym.name }}
+  {%- for word in synonym.words %}
+    '{{ word }}'{% if not loop.last %}, {% endif %}
+  {%- endfor %}
+  end
+{%- endfor %}
+end
+{%- endif %}
+
+{%- if gslots %}
+
+gslots
+{%- for gslot in gslots %}
+  {{ gslot.name }}: {{ gslot.type }}
+  {%- if gslot.default is defined %}
+    = {{ gslot.default }}
+  {%- endif %}
+{%- if not loop.last %}, {% endif %}
+{%- endfor %}
+end
+{%- endif %}
+
+{%- if eservices %}
+
+eservices
+{%- for eservice in eservices %}
+  EServiceHTTP {{ eservice.name }}
+    verb: {{ eservice.verb }}
+    host: '{{ eservice.host }}'
+    {%- if eservice.port %}
+    port: {{ eservice.port }}
+    {%- endif %}
+    {%- if eservice.path %}
+    path: '{{ eservice.path }}'
+    {%- endif %}
+    {%- if eservice.mime %}
+    mime: {% for mime in eservice.mime %}'{{ mime }}'{%- if not loop.last %}, {% endif %}{% endfor %}
+    {%- endif %}
+  end
+{%- endfor %}
+end
+{%- endif %}
+
+{%- if triggers %}
 
 triggers
 {%- for trigger in triggers %}
@@ -29,6 +71,9 @@ triggers
   end
 {%- endfor %}
 end
+{%- endif %}
+
+{%- if dialogues %}
 
 dialogues
 {%- for dialogue in dialogues %}
@@ -51,3 +96,4 @@ dialogues
   end
 {%- endfor %}
 end
+{%- endif %}
