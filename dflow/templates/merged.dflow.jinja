@@ -35,7 +35,7 @@ gslots
 end
 {%- endif %}
 
-{%- if eservices %}
+{%- if eservices -%}
 
 eservices
 {%- for eservice in eservices %}
@@ -54,7 +54,7 @@ eservices
   end
 {%- endfor %}
 end
-{%- endif %}
+{%- endif -%}
 
 {%- if triggers %}
 
@@ -69,7 +69,7 @@ triggers
     '{{ trigger.uri }}'
   {%- endif %}
   end
-{%- endfor %}
+{% endfor %}
 end
 {%- endif %}
 
@@ -94,6 +94,6 @@ dialogues
         end
       {%- endfor %}
   end
-{%- endfor %}
+{% endfor %}
 end
 {%- endif %}
