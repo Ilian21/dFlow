@@ -568,23 +568,29 @@ def extract_param_source(raw_response: str, param, next_param: Optional[Any]) ->
     
 def are_dialogues_similar(dialogue1: Dialogue, dialogue2: Dialogue) -> bool:
     if len(dialogue1.responses) != len(dialogue2.responses):
+        print('Number of responses does not match')
         return False
     for response1_i, response2_i in zip(dialogue1.responses, dialogue2.responses):
         if response1_i.type != response2_i.type:
+            print('Mismatch in response types: expected corresponding types (Form/ActionGroup).')
             return False
     for response1_i, response2_i in zip(dialogue1.responses, dialogue2.responses):
         if response1_i.type == 'Form' and len(response1_i.params) != len(response2_i.params): # obviously response2_i is also Form
+            print('Number of params in Forms does not match')
             return False
         if response1_i.type == 'ActionGroup' and len(response1_i.actions) != len(response2_i.actions): # obviously response2_i is also ActionGroup
+            print('Number of actions in ActionGroups does not match')
             return False
     for response1_i, response2_i in zip(dialogue1.responses, dialogue2.responses):
         if response1_i.type == 'Form':
             for param1_i, param2_i in zip(response1_i.params, response2_i.params):
                 if param1_i.type != param2_i.type:
+                    print('Mismatch in param types in Forms: expected corresponding types (int, float, str, bool, list, dict).')
                     return False            
         if response1_i.type == 'ActionGroup':
             for action1_i, action2_i in zip(response1_i.actions, response2_i.actions):
                 if action1_i.type != action2_i.type:
+                    print('Mismatch in action types in ActionGroups: expected corresponding types (SpeakAction, FireEventAction, SetFormSlot, SetGlobalSlot, EServiceCallHTTP)')
                     return False      
     for response1_i, response2_i in zip(dialogue1.responses, dialogue2.responses):
         if response1_i.type == 'Form':
@@ -593,10 +599,12 @@ def are_dialogues_similar(dialogue1: Dialogue, dialogue2: Dialogue) -> bool:
                 hri2 = extract_hri(param2_i)
                 #check the similarity between param sources
                 if hri1 and hri2 and not are_lists_similar([hri1], [hri2]):
+                    print('The HRIs inside the forms are not similar')
                     return False              
         if response1_i.type == 'ActionGroup':
             for action1_i, action2_i in zip(response1_i.actions, response2_i.actions):
                 if action1_i.type == 'SpeakAction' and not are_lists_similar(action1_i.content, action2_i.content):  #they have the same type
+                    print('The Speaks inside the ActionGroups are not similar')
                     return False     
     return True
 
