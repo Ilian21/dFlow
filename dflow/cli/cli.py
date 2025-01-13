@@ -50,11 +50,14 @@ def merge(ctx, models):
     if len(_models) < 2:
         print("[X] Number of models must be greater than two (2)")
         return
-    merged_model_str = merge_models(_models)
-    out_path = f"merged.dflow"
-    with open(out_path, 'w') as f:
-                f.write(merged_model_str)
-    print(f"[*] Model merging finished - Output: {out_path}")
+    try:
+        merged_model_str = merge_models(_models)
+        out_path = f"merged.dflow"
+        with open(out_path, 'w') as f:
+                    f.write(merged_model_str)
+        print(f"[*] Model merging finished - Output: {out_path}")
+    except Exception as e:
+        print(e)
 
 def main():
     cli(prog_name="dflow")
