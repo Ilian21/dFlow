@@ -19,7 +19,7 @@ from textx.scoping import GlobalModelRepository
 import dflow.definitions as CONSTANTS
 
 from dflow.generator import validate_path_params, process_eservice_params_as_dict
-from dflow.m2m.openapi_to_dflow import EService, Slot, Trigger
+from dflow.m2m.openapi_to_dflow import Trigger
 from dflow.similarity import are_lists_similar
 
 pretty.install()
@@ -468,6 +468,17 @@ def extract_phrases(raw_model: str, intent_name: str) -> List[str]:
     return list(map(str.strip, phrasesList))
 
 def find_similar_intent(phrases: List[str], triggers: List[Union[Trigger, Event]]) -> Optional[Trigger]:
+    """
+    Find and return a similar intent if it exists
+    
+    Args: 
+        phrases: the List of strings from the new intent that I am comparing
+        triggers: the List of Triggers in which to look for similar intent
+        
+    Returns: 
+        Trigger: similar intent if it exists
+        None: if there isn't a similar intent
+    """
     for trigger in triggers:
         if trigger.type=='Intent' and are_lists_similar(phrases, trigger.phrases):
             return trigger
