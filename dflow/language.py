@@ -590,7 +590,7 @@ def are_dialogues_similar(dialogue1: Dialogue, dialogue2: Dialogue) -> bool:
             print(f'Number of params in Forms {response1_i.name} of {dialogue1.name} and {response2_i.name} of {dialogue2.name} does not match.')
             return False
         if response1_i.type == 'ActionGroup' and len(response1_i.actions) != len(response2_i.actions): # obviously response2_i is also ActionGroup
-            print(f'Number of actions in ActionGroups {response1_i.name} of {dialogue1.name} and {response2_i.name} of {dialogue2.name} does not match')
+            print(f'Number of actions in ActionGroups {response1_i.name} of {dialogue1.name} and {response2_i.name} of {dialogue2.name} does not match.')
             return False
     for response1_i, response2_i in zip(dialogue1.responses, dialogue2.responses):
         if response1_i.type == 'Form':
@@ -601,7 +601,7 @@ def are_dialogues_similar(dialogue1: Dialogue, dialogue2: Dialogue) -> bool:
         if response1_i.type == 'ActionGroup':
             for action1_i, action2_i in zip(response1_i.actions, response2_i.actions):
                 if action1_i.type != action2_i.type:
-                    print(f'Mismatch in action types {action1_i.name} and {action2_i.name} in ActionGroups {response1_i.name} of {dialogue1.name} and {response2_i.name} of {dialogue2.name}: expected corresponding types (SpeakAction, FireEventAction, SetFormSlot, SetGlobalSlot, EServiceCallHTTP).')
+                    print(f'Mismatch in action types {action1_i.type} and {action2_i.type} in ActionGroups {response1_i.name} of {dialogue1.name} and {response2_i.name} of {dialogue2.name}: expected corresponding types (SpeakAction, FireEventAction, SetFormSlot, SetGlobalSlot, EServiceCallHTTP).')
                     return False      
     for response1_i, response2_i in zip(dialogue1.responses, dialogue2.responses):
         if response1_i.type == 'Form':
